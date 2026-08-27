@@ -24,7 +24,7 @@ const WORDS: WordCard[] = [
   { word: '안녕', picture: '👋', tone: 640 },
   { word: '자요', picture: '😴', tone: 350 },
   { word: '안아', picture: '🤗', tone: 430 },
-  { word: '나가요', picture: '🚶☀️', tone: 560, image: '/images/playground-swing-27099587.jpg' },
+  { word: '나가요', picture: '🚶☀️', tone: 560, image: '/images/playground-landscape-14612374.jpg' },
   { word: '배불러', picture: '😌', tone: 400 },
   { word: '아파요', picture: '🤕', tone: 330 },
   { word: '좋아요', picture: '👍', tone: 620 },

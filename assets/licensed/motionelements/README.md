@@ -17,6 +17,9 @@ served directly by the website.
 - `playground-swing-27099587.jpg` — Motion Elements code `27099587`, “Little girl flying on swing in city playground. Happy kid on summer day playing”
   - https://www.motionelements.com/ko/gif-27099587-little-girl-flying-on-swing-in-city-playground-happy-kid-on-summer-day-playing
   - Licensed still-image option, 1920×1080, royalty-free, model release shown as available.
+- `playground-landscape-14612374.jpg` — Motion Elements code `14612374`, “Empty children playground in cathedral square park in the center of Chisinau”
+  - https://www.motionelements.com/ko/stock-image-14612374-empty-children-playground-in-cathedral-square-park-in-the-center-of-chisinau
+  - Licensed JPG option, 6048×4024, royalty-free.
 
 `public/sounds/gift-tap-layered.wav` is a short derivative mix made from these
 three licensed sources for the gift-box tap interaction.
@@ -25,5 +28,6 @@ three licensed sources for the gift-box tap interaction.
 licensed whoosh, reward jingle, and toy-block impact, timed to the lid opening
 and card reveal.
 
-`public/images/playground-swing-27099587.jpg` is a cropped and resized derivative
-used only by the `나가요` word card.
+`public/images/playground-landscape-14612374.jpg` is a cropped and resized
+derivative used only by the `나가요` word card. The earlier swing-photo source
+is retained here only as licensed project history and is no longer served.
