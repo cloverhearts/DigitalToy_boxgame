@@ -8,7 +8,7 @@
   },
   "scripts": {
     "dev": "vite --host 0.0.0.0",
-    "build": "node scripts/prepare-build.mjs && tsc --noEmit && vite build && vite build --config vite.worker.config.ts",
+    "build": "node scripts/prepare-build.mjs && tsc --noEmit && vite build && vite build --config vite.worker.config.ts && node scripts/sync-docs.mjs",
     "preview": "vite preview --host 0.0.0.0"
   },
   "dependencies": {

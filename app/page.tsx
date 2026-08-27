@@ -11,6 +11,8 @@ import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 
 type WordCard = { word: string; picture: string; tone: number; image?: string };
 
+const publicAsset = (path: string) => `${import.meta.env.BASE_URL}${path.replace(/^\//, '')}`;
+
 const WORDS: WordCard[] = [
   { word: '물', picture: '💧', tone: 520 },
   { word: '밥', picture: '🍚', tone: 440 },
@@ -24,7 +26,7 @@ const WORDS: WordCard[] = [
   { word: '안녕', picture: '👋', tone: 640 },
   { word: '자요', picture: '😴', tone: 350 },
   { word: '안아', picture: '🤗', tone: 430 },
-  { word: '나가요', picture: '🚶☀️', tone: 560, image: '/images/playground-landscape-14612374.jpg' },
+  { word: '나가요', picture: '🚶☀️', tone: 560, image: publicAsset('images/playground-landscape-14612374.jpg') },
   { word: '배불러', picture: '😌', tone: 400 },
   { word: '아파요', picture: '🤕', tone: 330 },
   { word: '좋아요', picture: '👍', tone: 620 },
@@ -42,8 +44,8 @@ const BOX_STYLES = [
   ['#d49452', '#b9dfce', '#e9b879'],
 ];
 
-const TAP_SAMPLE_URL = '/sounds/gift-tap-layered.wav';
-const OPEN_SAMPLE_URL = '/sounds/gift-open-layered.wav';
+const TAP_SAMPLE_URL = publicAsset('sounds/gift-tap-layered.wav');
+const OPEN_SAMPLE_URL = publicAsset('sounds/gift-open-layered.wav');
 
 function makePatternTexture(colors: string[], variant: number) {
   const canvas = document.createElement('canvas');
