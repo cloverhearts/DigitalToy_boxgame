@@ -42,6 +42,8 @@ const BOX_STYLES = [
   ['#d49452', '#b9dfce', '#e9b879'],
 ];
 
+const TAP_SAMPLE_URL = '/sounds/gift-tap-layered.wav';
+
 function makePatternTexture(colors: string[], variant: number) {
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = 256;
@@ -357,6 +359,11 @@ export default function Home() {
     let audio: AudioContext | null = null;
     let audioBus: GainNode | null = null;
     let audioCompressor: DynamicsCompressorNode | null = null;
+    let tapSampleBuffer: AudioBuffer | null = null;
+    let tapSampleDecode: Promise<AudioBuffer | null> | null = null;
+    const tapSampleData = fetch(TAP_SAMPLE_URL)
+      .then((response) => (response.ok ? response.arrayBuffer() : null))
+      .catch(() => null);
     let boxTouches = 0;
     let phase: 'box' | 'opening' | 'card' | 'ready' = 'box';
     let spawnAt = performance.now();
@@ -390,11 +397,38 @@ export default function Home() {
       if (audio.state === 'suspended') void audio.resume();
       return { context: audio, bus: audioBus! };
     };
+    const prepareTapSample = () => {
+      const { context } = ensureAudio();
+      if (tapSampleBuffer) return Promise.resolve(tapSampleBuffer);
+      if (!tapSampleDecode) {
+        tapSampleDecode = tapSampleData
+          .then((data) => (data ? context.decodeAudioData(data.slice(0)) : null))
+          .then((buffer) => {
+            tapSampleBuffer = buffer;
+            return buffer;
+          })
+          .catch(() => null);
+      }
+      return tapSampleDecode;
+    };
     const playTap = (count: number, swipe: boolean) => {
       const { context, bus } = ensureAudio();
       const now = context.currentTime;
       const pitch = swipe ? 210 : 254 + count * 28;
       const accent = 1 + Math.min(count - 1, 2) * 0.055;
+      if (tapSampleBuffer) {
+        const source = context.createBufferSource();
+        const gain = context.createGain();
+        source.buffer = tapSampleBuffer;
+        source.playbackRate.value = swipe ? 0.94 : 0.98 + Math.min(count - 1, 2) * 0.055;
+        gain.gain.setValueAtTime(0.0001, now);
+        gain.gain.exponentialRampToValueAtTime(0.78 * accent, now + 0.003);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.41);
+        source.connect(gain).connect(bus);
+        source.start(now);
+        return;
+      }
+      void prepareTapSample();
       playTone(context, bus, pitch * 0.5, now, 0.082, 0.036 * accent, 'sine', pitch * 0.32, 0.003);
       playTone(context, bus, pitch, now, 0.11, 0.072 * accent, 'triangle', pitch * 0.64, 0.0025);
       playTone(context, bus, pitch * 1.82, now + 0.003, 0.12, 0.043 * accent, 'sine', pitch * 2.02, 0.002);
@@ -563,6 +597,7 @@ export default function Home() {
       if (phase === 'ready') { nextRound(); return; }
       if (phase !== 'box') return;
       pointerOnGift = giftHit();
+      if (pointerOnGift) void prepareTapSample();
     };
     const onPointerMove = (event: PointerEvent) => {
       if (phase !== 'box') return; updatePointer(event);
