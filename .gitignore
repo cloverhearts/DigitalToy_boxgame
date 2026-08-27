@@ -1,38 +1,64 @@
 # dependencies
 /node_modules
+/jspm_packages
+/bower_components
 /.pnp
 .pnp.*
 .yarn/*
 !.yarn/patches
 !.yarn/plugins
 !.yarn/releases
+!.yarn/sdks
 !.yarn/versions
+.pnpm-store
 
-# testing
-/coverage
-
-# next.js
-/.next/
-/.vinext/
-/out/
-
-# misc
-.DS_Store
-*.pem
-
-# debug
+# logs and diagnostics
+logs
+*.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
-.pnpm-debug.log*
+lerna-debug.log*
+report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
+
+# testing and caches
+/coverage
+*.lcov
+.nyc_output
+.cache
+.parcel-cache
+.npm
+.eslintcache
+.stylelintcache
+.vite/
+*.tsbuildinfo
+
+# framework build output
+/.next/
+/.vinext/
+/out/
+/dist/
+/.nuxt/
+/.output/
+/.svelte-kit/
+/.docusaurus/
+/.serverless/
+/.wrangler/
+**/.vitepress/dist
+**/.vitepress/cache
 
 # local environment
 .env*
+!.env.example
 
-# deployment and generated files
+# generated and local files
+.DS_Store
+*.pem
+*.tgz
 .vercel
 next-env.d.ts
-/dist/
-/.wrangler/
 /outputs/
 /work/
+.node_repl_history
+.tern-port
+.vscode-test
