@@ -9,5 +9,5 @@ export default defineConfig({
   server: isCodexSeatbeltSandbox
     ? { watch: { useFsEvents: false, usePolling: true } }
     : undefined,
-  build: { chunkSizeWarningLimit: 850 },
+  build: { outDir: 'dist/client', chunkSizeWarningLimit: 850 },
 });
