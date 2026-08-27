@@ -392,9 +392,11 @@ export default function Home() {
       const { context, bus } = ensureAudio();
       const now = context.currentTime;
       const pitch = swipe ? 210 : 254 + count * 28;
-      playTone(context, bus, pitch, now, 0.09, 0.038, 'triangle', pitch * 0.72);
-      playTone(context, bus, pitch * 1.68, now + 0.008, 0.115, 0.02, 'sine', pitch * 1.78);
-      playNoiseSweep(context, bus, now, 0.042, 980, 460, 0.014);
+      playTone(context, bus, pitch * 0.52, now, 0.075, 0.03, 'sine', pitch * 0.38);
+      playTone(context, bus, pitch, now, 0.105, 0.066, 'triangle', pitch * 0.7);
+      playTone(context, bus, pitch * 1.68, now + 0.006, 0.13, 0.035, 'sine', pitch * 1.8);
+      playTone(context, bus, pitch * 2.45, now + 0.004, 0.044, 0.009, 'square', pitch * 2.15);
+      playNoiseSweep(context, bus, now, 0.055, 1250, 390, 0.024);
     };
     const playOpen = () => {
       const { context, bus } = ensureAudio();
