@@ -14,6 +14,9 @@ served directly by the website.
   - https://www.motionelements.com/ko/sound-effect-54084126-cute-comical-zoom-in-whoosh-sound-effect-02
 - `reward-jingle.wav` — Motion Elements code `55764004`, “Cute Magic Item Reward Sound Effect 03”
   - https://www.motionelements.com/ko/sound-effect-55764004-cute-magic-item-reward-sound-effect-03
+- `playground-swing-27099587.jpg` — Motion Elements code `27099587`, “Little girl flying on swing in city playground. Happy kid on summer day playing”
+  - https://www.motionelements.com/ko/gif-27099587-little-girl-flying-on-swing-in-city-playground-happy-kid-on-summer-day-playing
+  - Licensed still-image option, 1920×1080, royalty-free, model release shown as available.
 
 `public/sounds/gift-tap-layered.wav` is a short derivative mix made from these
 three licensed sources for the gift-box tap interaction.
@@ -21,3 +24,6 @@ three licensed sources for the gift-box tap interaction.
 `public/sounds/gift-open-layered.wav` is a 1.38-second derivative mix of the
 licensed whoosh, reward jingle, and toy-block impact, timed to the lid opening
 and card reveal.
+
+`public/images/playground-swing-27099587.jpg` is a cropped and resized derivative
+used only by the `나가요` word card.

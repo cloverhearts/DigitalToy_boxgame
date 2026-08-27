@@ -9,7 +9,7 @@ import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 
-type WordCard = { word: string; picture: string; tone: number };
+type WordCard = { word: string; picture: string; tone: number; image?: string };
 
 const WORDS: WordCard[] = [
   { word: '물', picture: '💧', tone: 520 },
@@ -24,7 +24,7 @@ const WORDS: WordCard[] = [
   { word: '안녕', picture: '👋', tone: 640 },
   { word: '자요', picture: '😴', tone: 350 },
   { word: '안아', picture: '🤗', tone: 430 },
-  { word: '나가요', picture: '🚶☀️', tone: 560 },
+  { word: '나가요', picture: '🚶☀️', tone: 560, image: '/images/playground-swing-27099587.jpg' },
   { word: '배불러', picture: '😌', tone: 400 },
   { word: '아파요', picture: '🤕', tone: 330 },
   { word: '좋아요', picture: '👍', tone: 620 },
@@ -765,7 +765,9 @@ export default function Home() {
         <section className={`word-card-wrap ${cardReady ? 'is-ready' : ''}`} aria-live="polite">
           <div className="word-card" role="img" aria-label={card.word}>
             <div className="paper-tape" aria-hidden="true" />
-            <div className="word-picture" aria-hidden="true">{card.picture}</div>
+            <div className={`word-picture ${card.image ? 'is-photo' : ''}`} aria-hidden="true">
+              {card.image ? <img src={card.image} alt="" /> : card.picture}
+            </div>
             <div className="word-label">{card.word}</div>
             <span className="card-shine" aria-hidden="true" />
           </div>
