@@ -123,6 +123,43 @@ function makeRibbonTail(side: number, material: THREE.Material) {
   return tail;
 }
 
+type TapPose = {
+  scaleX: number;
+  scaleY: number;
+  lift: number;
+  tilt: number;
+  lidLift: number;
+  shadow: number;
+};
+
+const TAP_POSES: Array<TapPose & { at: number }> = [
+  { at: 0, scaleX: 1, scaleY: 1, lift: 0, tilt: 0, lidLift: 0, shadow: 1 },
+  { at: 0.16, scaleX: 1.055, scaleY: 0.89, lift: -0.055, tilt: 0.012, lidLift: 0, shadow: 1.09 },
+  { at: 0.38, scaleX: 0.975, scaleY: 1.075, lift: 0.095, tilt: -0.026, lidLift: 0.13, shadow: 0.94 },
+  { at: 0.61, scaleX: 1.018, scaleY: 0.985, lift: 0.018, tilt: 0.012, lidLift: 0.035, shadow: 1.025 },
+  { at: 0.82, scaleX: 0.994, scaleY: 1.008, lift: 0, tilt: -0.005, lidLift: 0, shadow: 0.995 },
+  { at: 1, scaleX: 1, scaleY: 1, lift: 0, tilt: 0, lidLift: 0, shadow: 1 },
+];
+
+function sampleTapPose(progress: number): TapPose {
+  const p = THREE.MathUtils.clamp(progress, 0, 1);
+  const upperIndex = Math.min(TAP_POSES.length - 1, TAP_POSES.findIndex((pose) => pose.at >= p));
+  const lowerIndex = Math.max(0, upperIndex - 1);
+  const lower = TAP_POSES[lowerIndex];
+  const upper = TAP_POSES[upperIndex];
+  const span = Math.max(upper.at - lower.at, 0.0001);
+  const raw = (p - lower.at) / span;
+  const eased = raw * raw * (3 - 2 * raw);
+  return {
+    scaleX: THREE.MathUtils.lerp(lower.scaleX, upper.scaleX, eased),
+    scaleY: THREE.MathUtils.lerp(lower.scaleY, upper.scaleY, eased),
+    lift: THREE.MathUtils.lerp(lower.lift, upper.lift, eased),
+    tilt: THREE.MathUtils.lerp(lower.tilt, upper.tilt, eased),
+    lidLift: THREE.MathUtils.lerp(lower.lidLift, upper.lidLift, eased),
+    shadow: THREE.MathUtils.lerp(lower.shadow, upper.shadow, eased),
+  };
+}
+
 function playTone(context: AudioContext, frequency: number, start: number, duration: number, volume = 0.055) {
   const oscillator = context.createOscillator();
   const gain = context.createGain();
@@ -283,7 +320,9 @@ export default function Home() {
     let surface: SurfaceKind = 'sand';
     let boxTouches = 0;
     let phase: 'box' | 'opening' | 'card' | 'ready' = 'box';
+    let spawnAt = performance.now();
     let hitAt = -1000;
+    let tapDirection = 1;
     let openingAt = -1000;
     let dragTarget = 0;
     let dragValue = 0;
@@ -474,15 +513,15 @@ export default function Home() {
       setCard(null); setCardReady(false); phase = 'box'; boxTouches = 0; dragTarget = dragValue = 0;
       surface = SURFACES[Math.floor(Math.random() * SURFACES.length)];
       buildSurface(surface); buildGift();
-      gift.visible = true; gift.position.set(0, 0, 0); gift.rotation.set(0, 0, 0); gift.scale.setScalar(0.4);
+      gift.visible = true; gift.position.set(0, 0, 0); gift.rotation.set(0, 0, 0); gift.scale.setScalar(0.55);
       glow.material.opacity = 0; glow.scale.setScalar(0.1); bloomPass.strength = 0.06; burstLight.intensity = 0;
       lightRings.forEach((ring) => { (ring.material as THREE.MeshBasicMaterial).opacity = 0; ring.scale.setScalar(0.1); });
       sparkleGroup.children.forEach((child) => ((child as THREE.Mesh).material as THREE.MeshBasicMaterial).opacity = 0);
       effectGroup.children.forEach((child) => { if (child.userData.angle !== undefined) child.visible = false; });
-      camera.position.copy(cameraHome); camera.lookAt(0, 0.65, 0); contactShadow.material.opacity = 0.22;
+      camera.position.copy(cameraHome); camera.lookAt(0, 0.65, 0); contactShadow.material.opacity = 0.22; contactShadow.scale.set(1, 0.62, 1);
       const nextIndex = (previousWord + 1 + Math.floor(Math.random() * (WORDS.length - 1))) % WORDS.length;
       previousWord = nextIndex; currentCard = WORDS[nextIndex];
-      hitAt = performance.now();
+      spawnAt = performance.now(); hitAt = -1000; tapDirection = 1;
     };
 
     const openGift = () => {
@@ -495,7 +534,7 @@ export default function Home() {
 
     const reactGift = (swipe: boolean, amount = 0) => {
       if (phase !== 'box') return;
-      boxTouches += 1; hitAt = performance.now(); playTap(boxTouches, swipe);
+      boxTouches += 1; hitAt = performance.now(); tapDirection = boxTouches % 2 === 0 ? -1 : 1; playTap(boxTouches, swipe);
       dragTarget = THREE.MathUtils.clamp(amount, -1.0, 1.0) * (surface === 'concrete' ? 0.18 : 0.52);
       if (boxTouches >= 3) openGift();
     };
@@ -567,21 +606,23 @@ export default function Home() {
     const animate = (time: number) => {
       const dt = Math.min((time - lastAnimationTime) / 1000, 0.034);
       lastAnimationTime = time;
-      const hitProgress = Math.max(0, 1 - (time - hitAt) / (prefersLessMotion ? 180 : 540));
+      const spawnProgress = THREE.MathUtils.clamp((time - spawnAt) / (prefersLessMotion ? 180 : 520), 0, 1);
+      const tapProgress = THREE.MathUtils.clamp((time - hitAt) / (prefersLessMotion ? 170 : 430), 0, 1);
       dragValue = THREE.MathUtils.damp(dragValue, dragTarget, surface === 'concrete' ? 5 : 9, dt);
       if (phase === 'box') {
-        const settleScale = 1 - hitProgress;
-        gift.scale.setScalar(0.4 + 0.6 * (1 - Math.pow(1 - Math.min(1, settleScale * 2.2), 3)));
-        const wobble = Math.sin(hitProgress * Math.PI * 4.5) * 0.095 * hitProgress;
-        gift.rotation.z = wobble + dragValue * 0.08;
-        gift.scale.y *= 1 - Math.sin(hitProgress * Math.PI) * 0.075;
+        const spawnEase = 1 + 1.45 * Math.pow(spawnProgress - 1, 3) + 0.45 * Math.pow(spawnProgress - 1, 2);
+        const spawnScale = THREE.MathUtils.lerp(0.55, 1, THREE.MathUtils.clamp(spawnEase, 0, 1.06));
+        const tapPose = sampleTapPose(tapProgress);
+        gift.scale.set(spawnScale * tapPose.scaleX, spawnScale * tapPose.scaleY, spawnScale * tapPose.scaleX);
+        gift.rotation.z = tapPose.tilt * tapDirection + dragValue * 0.035;
         gift.position.x = dragValue;
-        gift.position.y = Math.sin(time * 0.0022) * (prefersLessMotion ? 0.004 : 0.018) + Math.sin(hitProgress * Math.PI) * 0.13;
+        gift.position.y = Math.sin(time * 0.0022) * (prefersLessMotion ? 0.004 : 0.014) + tapPose.lift;
         if (lidAssembly) {
-          lidAssembly.position.y = 1.72 + Math.sin(hitProgress * Math.PI) * 0.09;
-          lidAssembly.rotation.set(0, 0, wobble * -0.22);
+          lidAssembly.position.y = 1.72 + tapPose.lidLift;
+          lidAssembly.rotation.set(-tapPose.lidLift * 0.08, 0, -tapPose.tilt * tapDirection * 0.32);
         }
-        if (bow) bow.rotation.y = Math.sin(time * 0.0019) * (prefersLessMotion ? 0.015 : 0.09);
+        if (bow) bow.rotation.y = Math.sin(time * 0.0019) * (prefersLessMotion ? 0.015 : 0.07) + Math.sin(tapProgress * Math.PI) * tapDirection * 0.035;
+        contactShadow.scale.set(tapPose.shadow, 0.62 * tapPose.shadow, 1);
         camera.position.lerp(cameraHome, 0.08);
         camera.lookAt(0, 0.65, 0);
         bloomPass.strength = THREE.MathUtils.damp(bloomPass.strength, 0.06, 7, dt);
