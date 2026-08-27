@@ -10,6 +10,14 @@ served directly by the website.
   - https://www.motionelements.com/ko/sound-effect-11433469-suction-pop-high
 - `toy-block-hit.wav` — Motion Elements code `23645482`, “Wood - Handle toy blocks - 44 16 - 09”
   - https://www.motionelements.com/ko/sound-effect-23645482-wood-handle-toy-blocks-44-16-09
+- `open-whoosh.wav` — Motion Elements code `54084126`, “Cute Comical Zoom In Whoosh Sound Effect 02”
+  - https://www.motionelements.com/ko/sound-effect-54084126-cute-comical-zoom-in-whoosh-sound-effect-02
+- `reward-jingle.wav` — Motion Elements code `55764004`, “Cute Magic Item Reward Sound Effect 03”
+  - https://www.motionelements.com/ko/sound-effect-55764004-cute-magic-item-reward-sound-effect-03
 
 `public/sounds/gift-tap-layered.wav` is a short derivative mix made from these
 three licensed sources for the gift-box tap interaction.
+
+`public/sounds/gift-open-layered.wav` is a 1.38-second derivative mix of the
+licensed whoosh, reward jingle, and toy-block impact, timed to the lid opening
+and card reveal.

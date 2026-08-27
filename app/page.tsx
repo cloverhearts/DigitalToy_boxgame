@@ -43,6 +43,7 @@ const BOX_STYLES = [
 ];
 
 const TAP_SAMPLE_URL = '/sounds/gift-tap-layered.wav';
+const OPEN_SAMPLE_URL = '/sounds/gift-open-layered.wav';
 
 function makePatternTexture(colors: string[], variant: number) {
   const canvas = document.createElement('canvas');
@@ -361,7 +362,12 @@ export default function Home() {
     let audioCompressor: DynamicsCompressorNode | null = null;
     let tapSampleBuffer: AudioBuffer | null = null;
     let tapSampleDecode: Promise<AudioBuffer | null> | null = null;
+    let openSampleBuffer: AudioBuffer | null = null;
+    let openSampleDecode: Promise<AudioBuffer | null> | null = null;
     const tapSampleData = fetch(TAP_SAMPLE_URL)
+      .then((response) => (response.ok ? response.arrayBuffer() : null))
+      .catch(() => null);
+    const openSampleData = fetch(OPEN_SAMPLE_URL)
       .then((response) => (response.ok ? response.arrayBuffer() : null))
       .catch(() => null);
     let boxTouches = 0;
@@ -411,16 +417,30 @@ export default function Home() {
       }
       return tapSampleDecode;
     };
+    const prepareOpenSample = () => {
+      const { context } = ensureAudio();
+      if (openSampleBuffer) return Promise.resolve(openSampleBuffer);
+      if (!openSampleDecode) {
+        openSampleDecode = openSampleData
+          .then((data) => (data ? context.decodeAudioData(data.slice(0)) : null))
+          .then((buffer) => {
+            openSampleBuffer = buffer;
+            return buffer;
+          })
+          .catch(() => null);
+      }
+      return openSampleDecode;
+    };
     const playTap = (count: number, swipe: boolean) => {
       const { context, bus } = ensureAudio();
       const now = context.currentTime;
       const pitch = swipe ? 210 : 254 + count * 28;
-      const accent = 1 + Math.min(count - 1, 2) * 0.055;
+      const accent = 1 + Math.min(count - 1, 4) * 0.035;
       if (tapSampleBuffer) {
         const source = context.createBufferSource();
         const gain = context.createGain();
         source.buffer = tapSampleBuffer;
-        source.playbackRate.value = swipe ? 0.94 : 0.98 + Math.min(count - 1, 2) * 0.055;
+        source.playbackRate.value = swipe ? 0.94 : 0.96 + Math.min(count - 1, 4) * 0.035;
         gain.gain.setValueAtTime(0.0001, now);
         gain.gain.exponentialRampToValueAtTime(0.78 * accent, now + 0.003);
         gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.41);
@@ -438,6 +458,19 @@ export default function Home() {
     const playOpen = () => {
       const { context, bus } = ensureAudio();
       const now = context.currentTime;
+      if (openSampleBuffer) {
+        const source = context.createBufferSource();
+        const gain = context.createGain();
+        source.buffer = openSampleBuffer;
+        gain.gain.setValueAtTime(0.0001, now);
+        gain.gain.exponentialRampToValueAtTime(0.9, now + 0.008);
+        gain.gain.setValueAtTime(0.9, now + 1.25);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + 1.38);
+        source.connect(gain).connect(bus);
+        source.start(now);
+        return;
+      }
+      void prepareOpenSample();
       playNoiseSweep(context, bus, now, 0.48, 360, 3400, 0.024);
       playTone(context, bus, 285, now, 0.43, 0.018, 'triangle', 980);
       playTone(context, bus, 132, now, 0.16, 0.032, 'sine', 92);
@@ -567,7 +600,8 @@ export default function Home() {
     const openGift = () => {
       phase = 'opening'; openingAt = performance.now(); playOpen();
       cardTimer = window.setTimeout(() => {
-        phase = 'card'; setCard(currentCard); playCard(currentCard);
+        phase = 'card'; setCard(currentCard);
+        if (!openSampleBuffer) playCard(currentCard);
         readyTimer = window.setTimeout(() => { phase = 'ready'; setCardReady(true); }, 5000);
       }, prefersLessMotion ? 280 : 1380);
     };
@@ -576,7 +610,7 @@ export default function Home() {
       if (phase !== 'box') return;
       boxTouches += 1; hitAt = performance.now(); tapDirection = boxTouches % 2 === 0 ? -1 : 1; playTap(boxTouches, swipe);
       dragTarget = THREE.MathUtils.clamp(amount, -1.0, 1.0) * 0.52;
-      if (boxTouches >= 3) openGift();
+      if (boxTouches >= 5) openGift();
     };
 
     const raycaster = new THREE.Raycaster();
@@ -597,7 +631,10 @@ export default function Home() {
       if (phase === 'ready') { nextRound(); return; }
       if (phase !== 'box') return;
       pointerOnGift = giftHit();
-      if (pointerOnGift) void prepareTapSample();
+      if (pointerOnGift) {
+        void prepareTapSample();
+        void prepareOpenSample();
+      }
     };
     const onPointerMove = (event: PointerEvent) => {
       if (phase !== 'box') return; updatePointer(event);
