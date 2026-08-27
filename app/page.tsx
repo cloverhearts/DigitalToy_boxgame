@@ -3,6 +3,11 @@
 import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
+import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 
 type WordCard = { word: string; picture: string; tone: number };
 type SurfaceKind = 'sand' | 'soil' | 'concrete' | 'wood';
@@ -31,11 +36,11 @@ const WORDS: WordCard[] = [
 ];
 
 const BOX_STYLES = [
-  ['#eea39a', '#fff0a8', '#f9c5bc'],
-  ['#78b9aa', '#ffe0a3', '#9fd1c5'],
-  ['#91a9d5', '#ffd3b2', '#b7c5e5'],
-  ['#d6a8cb', '#fff2bd', '#e7c7df'],
-  ['#e7b06d', '#d7f0df', '#f3cb95'],
+  ['#df7991', '#f6cddd', '#f0a5b6'],
+  ['#5ba997', '#f3cf79', '#94c8bc'],
+  ['#718fc8', '#f1b78f', '#a9bce0'],
+  ['#b77dad', '#f1d483', '#d9b1d1'],
+  ['#d49452', '#b9dfce', '#e9b879'],
 ];
 
 const SURFACES: SurfaceKind[] = ['sand', 'soil', 'concrete', 'wood'];
@@ -66,6 +71,58 @@ function makePatternTexture(colors: string[], variant: number) {
   return texture;
 }
 
+function makeRadialTexture() {
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = 256;
+  const context = canvas.getContext('2d')!;
+  const gradient = context.createRadialGradient(128, 128, 6, 128, 128, 126);
+  gradient.addColorStop(0, 'rgba(255,255,238,1)');
+  gradient.addColorStop(0.24, 'rgba(255,241,170,.9)');
+  gradient.addColorStop(0.58, 'rgba(255,217,125,.3)');
+  gradient.addColorStop(1, 'rgba(255,210,110,0)');
+  context.fillStyle = gradient;
+  context.fillRect(0, 0, 256, 256);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
+
+function makeRibbonLoop(side: number, material: THREE.Material) {
+  const path = new THREE.CatmullRomCurve3([
+    new THREE.Vector3(side * 0.09, 0.02, 0),
+    new THREE.Vector3(side * 0.38, 0.3, 0.01),
+    new THREE.Vector3(side * 0.82, 0.52, -0.02),
+    new THREE.Vector3(side * 0.95, 0.16, -0.03),
+    new THREE.Vector3(side * 0.61, -0.06, 0),
+    new THREE.Vector3(side * 0.18, 0.01, 0.02),
+  ], false, 'catmullrom', 0.42);
+  const geometry = new THREE.TubeGeometry(path, 48, 0.14, 10, false);
+  const loop = new THREE.Mesh(geometry, material);
+  loop.scale.z = 0.62;
+  return loop;
+}
+
+function makeRibbonTail(side: number, material: THREE.Material) {
+  const shape = new THREE.Shape();
+  shape.moveTo(-0.17, 0.42);
+  shape.quadraticCurveTo(-0.2, 0, -0.11, -0.47);
+  shape.lineTo(0, -0.34);
+  shape.lineTo(0.12, -0.47);
+  shape.quadraticCurveTo(0.21, 0, 0.17, 0.42);
+  shape.closePath();
+  const geometry = new THREE.ExtrudeGeometry(shape, {
+    depth: 0.09,
+    bevelEnabled: true,
+    bevelSize: 0.025,
+    bevelThickness: 0.025,
+    bevelSegments: 3,
+  });
+  const tail = new THREE.Mesh(geometry, material);
+  tail.position.set(side * 0.23, -0.34, -0.02);
+  tail.rotation.z = side * 0.3;
+  return tail;
+}
+
 function playTone(context: AudioContext, frequency: number, start: number, duration: number, volume = 0.055) {
   const oscillator = context.createOscillator();
   const gain = context.createGain();
@@ -92,55 +149,135 @@ export default function Home() {
     scene.background = new THREE.Color('#b8ddcf');
     scene.fog = new THREE.Fog('#b8ddcf', 10, 19);
     const camera = new THREE.PerspectiveCamera(34, 1, 0.1, 100);
-    camera.position.set(0, 3.5, 8.8);
+    const cameraHome = new THREE.Vector3(0, 3.45, 8.9);
+    camera.position.copy(cameraHome);
     camera.lookAt(0, 0.65, 0);
 
     const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    const renderPixelRatio = Math.min(window.devicePixelRatio, 1.75);
+    renderer.setPixelRatio(renderPixelRatio);
     renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFShadowMap;
+    renderer.shadowMap.type = THREE.VSMShadowMap;
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.05;
+    renderer.toneMappingExposure = 0.88;
     renderer.domElement.setAttribute('aria-label', '선물 상자와 바닥을 만지는 놀이 화면');
     mount.appendChild(renderer.domElement);
 
-    scene.add(new THREE.HemisphereLight('#fff9e7', '#688379', 2.7));
-    const sun = new THREE.DirectionalLight('#fff1cf', 3.6);
+    const environmentGenerator = new THREE.PMREMGenerator(renderer);
+    const roomEnvironment = new RoomEnvironment();
+    const environmentMap = environmentGenerator.fromScene(roomEnvironment, 0.04).texture;
+    scene.environment = environmentMap;
+    environmentGenerator.dispose();
+    roomEnvironment.dispose();
+
+    const composer = new EffectComposer(renderer);
+    composer.setPixelRatio(renderPixelRatio);
+    composer.addPass(new RenderPass(scene, camera));
+    const bloomPass = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.06, 0.46, 1.04);
+    composer.addPass(bloomPass);
+    composer.addPass(new OutputPass());
+
+    scene.add(new THREE.HemisphereLight('#fff9ed', '#61766f', 0.9));
+    const sun = new THREE.DirectionalLight('#fff0d5', 2.35);
     sun.position.set(-4.5, 7, 5.5);
     sun.castShadow = true;
-    sun.shadow.mapSize.set(1024, 1024);
+    sun.shadow.mapSize.set(2048, 2048);
+    sun.shadow.bias = -0.0004;
+    sun.shadow.radius = 7;
     sun.shadow.camera.left = sun.shadow.camera.bottom = -6;
     sun.shadow.camera.right = sun.shadow.camera.top = 6;
     scene.add(sun);
-    const fill = new THREE.PointLight('#bfe9ff', 1.4, 15);
-    fill.position.set(4, 2, 4);
+    const fill = new THREE.RectAreaLight('#c9e9ff', 1.15, 4, 5);
+    fill.position.set(4.2, 3.8, 4.5);
+    fill.lookAt(0, 0.8, 0);
     scene.add(fill);
+    const rim = new THREE.SpotLight('#ffd9ed', 6.5, 14, Math.PI / 5, 0.8, 1.4);
+    rim.position.set(-4.5, 4.4, -3.2);
+    rim.target.position.set(0, 1, 0);
+    scene.add(rim, rim.target);
 
     const world = new THREE.Group();
     const gift = new THREE.Group();
     const surfaceGroup = new THREE.Group();
     const traceGroup = new THREE.Group();
     const sparkleGroup = new THREE.Group();
-    scene.add(world, sparkleGroup);
+    const effectGroup = new THREE.Group();
+    scene.add(world, sparkleGroup, effectGroup);
     world.add(surfaceGroup, traceGroup, gift);
 
-    const glow = new THREE.Mesh(
-      new THREE.SphereGeometry(1.2, 32, 24),
-      new THREE.MeshBasicMaterial({ color: '#fff7c8', transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending }),
-    );
-    glow.position.y = 1.25;
-    scene.add(glow);
-    for (let i = 0; i < 16; i += 1) {
+    const radialTexture = makeRadialTexture();
+    const glow = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: radialTexture,
+      color: new THREE.Color('#fff2b8').multiplyScalar(1.45),
+      transparent: true,
+      opacity: 0,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    }));
+    glow.position.set(0, 1.25, -0.25);
+    glow.scale.setScalar(0.1);
+    effectGroup.add(glow);
+
+    const ringMaterial = new THREE.MeshBasicMaterial({
+      color: new THREE.Color('#ffe59a').multiplyScalar(1.7),
+      transparent: true,
+      opacity: 0,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    });
+    const lightRings = [0, 1].map((index) => {
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(0.75 + index * 0.25, 0.024, 12, 72), ringMaterial.clone());
+      ring.position.set(0, 1.22, -0.05 - index * 0.04);
+      effectGroup.add(ring);
+      return ring;
+    });
+    const burstLight = new THREE.PointLight('#ffd786', 0, 9, 1.7);
+    burstLight.position.set(0, 1.4, 1.2);
+    effectGroup.add(burstLight);
+
+    for (let i = 0; i < 30; i += 1) {
+      const particleGeometry = i % 3 === 0
+        ? new THREE.OctahedronGeometry(0.045 + (i % 4) * 0.009, 0)
+        : new THREE.SphereGeometry(0.032 + (i % 5) * 0.007, 10, 8);
       const dot = new THREE.Mesh(
-        new THREE.SphereGeometry(0.035 + (i % 4) * 0.012, 10, 8),
-        new THREE.MeshBasicMaterial({ color: i % 2 ? '#fff1a8' : '#fff9e8', transparent: true, opacity: 0 }),
+        particleGeometry,
+        new THREE.MeshBasicMaterial({
+          color: new THREE.Color(i % 2 ? '#ffe49b' : '#fffdf0').multiplyScalar(1.9),
+          transparent: true,
+          opacity: 0,
+          depthWrite: false,
+          blending: THREE.AdditiveBlending,
+        }),
       );
+      dot.userData.seed = Math.random();
       sparkleGroup.add(dot);
     }
 
+    const confettiColors = ['#f5a9a1', '#ffe49b', '#91c7b7', '#a9bde4', '#d9add0'];
+    for (let i = 0; i < 22; i += 1) {
+      const piece = new THREE.Mesh(
+        new RoundedBoxGeometry(0.1, 0.19, 0.025, 2, 0.018),
+        new THREE.MeshPhysicalMaterial({ color: confettiColors[i % confettiColors.length], roughness: 0.42, clearcoat: 0.25 }),
+      );
+      piece.visible = false;
+      piece.userData.seed = Math.random();
+      piece.userData.angle = (i / 22) * Math.PI * 2;
+      effectGroup.add(piece);
+    }
+
+    const contactShadow = new THREE.Mesh(
+      new THREE.PlaneGeometry(4.1, 2.8),
+      new THREE.MeshBasicMaterial({ map: radialTexture, color: '#39433f', transparent: true, opacity: 0.22, depthWrite: false }),
+    );
+    contactShadow.rotation.x = -Math.PI / 2;
+    contactShadow.position.set(0, -0.402, 0.22);
+    contactShadow.scale.y = 0.62;
+    world.add(contactShadow);
+
     let floorMesh: THREE.Mesh | null = null;
     let lid: THREE.Mesh | null = null;
+    let lidAssembly: THREE.Group | null = null;
     let bow: THREE.Group | null = null;
     let audio: AudioContext | null = null;
     let surface: SurfaceKind = 'sand';
@@ -257,27 +394,79 @@ export default function Home() {
       const styleIndex = Math.floor(Math.random() * BOX_STYLES.length);
       const colors = BOX_STYLES[styleIndex];
       const texture = makePatternTexture(colors, Math.floor(Math.random() * 3));
-      const boxMat = new THREE.MeshStandardMaterial({ color: '#ffffff', map: texture, roughness: 0.48 });
-      const lidMat = new THREE.MeshStandardMaterial({ color: colors[0], roughness: 0.44 });
-      const ribbonMat = new THREE.MeshStandardMaterial({ color: colors[1], roughness: 0.42 });
-      const base = new THREE.Mesh(new RoundedBoxGeometry(2.76, 2.0, 2.22, 5, 0.18), boxMat);
+      texture.anisotropy = renderer.capabilities.getMaxAnisotropy();
+      const boxMat = new THREE.MeshPhysicalMaterial({
+        color: '#ffffff',
+        map: texture,
+        bumpMap: texture,
+        bumpScale: 0.018,
+        roughness: 0.24,
+        metalness: 0,
+        clearcoat: 0.48,
+        clearcoatRoughness: 0.2,
+        sheen: 0.22,
+        sheenColor: new THREE.Color(colors[2]),
+        sheenRoughness: 0.42,
+        envMapIntensity: 0.78,
+      });
+      const lidMat = new THREE.MeshPhysicalMaterial({
+        color: colors[0],
+        roughness: 0.2,
+        metalness: 0,
+        clearcoat: 0.72,
+        clearcoatRoughness: 0.16,
+        sheen: 0.18,
+        sheenColor: new THREE.Color('#ffffff'),
+        envMapIntensity: 0.88,
+      });
+      const ribbonMat = new THREE.MeshPhysicalMaterial({
+        color: colors[1],
+        roughness: 0.22,
+        metalness: 0,
+        clearcoat: 0.82,
+        clearcoatRoughness: 0.13,
+        sheen: 0.25,
+        sheenColor: new THREE.Color('#ffffff'),
+        envMapIntensity: 0.95,
+      });
+      const innerMat = new THREE.MeshPhysicalMaterial({ color: colors[2], roughness: 0.46, clearcoat: 0.16 });
+
+      const base = new THREE.Mesh(new RoundedBoxGeometry(2.82, 2.03, 2.26, 8, 0.23), boxMat);
       base.position.set(0, 0.56, 0); base.castShadow = true; base.receiveShadow = true; base.userData.isGift = true; gift.add(base);
-      lid = new THREE.Mesh(new THREE.BoxGeometry(3.06, 0.48, 2.54, 5, 2, 4), lidMat);
-      lid.position.y = 1.74; lid.castShadow = true; lid.userData.isGift = true; gift.add(lid);
-      const vertical = new THREE.Mesh(new THREE.BoxGeometry(0.5, 2.28, 2.38), ribbonMat);
-      vertical.position.y = 0.62; vertical.castShadow = true; vertical.userData.isGift = true; gift.add(vertical);
-      const topRibbon = new THREE.Mesh(new THREE.BoxGeometry(3.16, 0.23, 2.63), ribbonMat);
-      topRibbon.position.y = 1.74; topRibbon.userData.isGift = true; gift.add(topRibbon);
+      const inset = new THREE.Mesh(new RoundedBoxGeometry(2.58, 0.2, 2.02, 4, 0.1), innerMat);
+      inset.position.set(0, 1.54, 0); inset.castShadow = true; inset.userData.isGift = true; gift.add(inset);
+
+      const frontRibbon = new THREE.Mesh(new RoundedBoxGeometry(0.48, 2.04, 0.105, 5, 0.045), ribbonMat);
+      frontRibbon.position.set(0, 0.57, 1.15); frontRibbon.castShadow = true; frontRibbon.userData.isGift = true; gift.add(frontRibbon);
+      const backRibbon = frontRibbon.clone();
+      backRibbon.position.z = -1.15; gift.add(backRibbon);
+      const bottomRibbon = new THREE.Mesh(new RoundedBoxGeometry(0.48, 0.1, 2.3, 4, 0.035), ribbonMat);
+      bottomRibbon.position.set(0, -0.46, 0); bottomRibbon.userData.isGift = true; gift.add(bottomRibbon);
+
+      lidAssembly = new THREE.Group();
+      lidAssembly.position.y = 1.72;
+      lidAssembly.userData.isGift = true;
+      gift.add(lidAssembly);
+      lid = new THREE.Mesh(new RoundedBoxGeometry(3.14, 0.52, 2.6, 8, 0.19), lidMat);
+      lid.castShadow = true; lid.receiveShadow = true; lid.userData.isGift = true; lidAssembly.add(lid);
+      const lidUnderside = new THREE.Mesh(new RoundedBoxGeometry(2.84, 0.1, 2.3, 4, 0.06), innerMat);
+      lidUnderside.position.y = -0.29; lidUnderside.castShadow = true; lidUnderside.userData.isGift = true; lidAssembly.add(lidUnderside);
+      const topRibbon = new THREE.Mesh(new RoundedBoxGeometry(0.5, 0.14, 2.69, 5, 0.05), ribbonMat);
+      topRibbon.position.y = 0.3; topRibbon.castShadow = true; topRibbon.userData.isGift = true; lidAssembly.add(topRibbon);
+      const lidFrontRibbon = new THREE.Mesh(new RoundedBoxGeometry(0.5, 0.53, 0.12, 4, 0.045), ribbonMat);
+      lidFrontRibbon.position.set(0, 0, 1.32); lidFrontRibbon.castShadow = true; lidFrontRibbon.userData.isGift = true; lidAssembly.add(lidFrontRibbon);
+      const lidBackRibbon = lidFrontRibbon.clone(); lidBackRibbon.position.z = -1.32; lidAssembly.add(lidBackRibbon);
 
       bow = new THREE.Group(); bow.userData.isGift = true;
-      const knot = new THREE.Mesh(new THREE.SphereGeometry(0.24, 22, 16), ribbonMat); knot.userData.isGift = true; bow.add(knot);
+      const knot = new THREE.Mesh(new RoundedBoxGeometry(0.45, 0.37, 0.43, 6, 0.16), ribbonMat);
+      knot.rotation.z = 0.08; knot.castShadow = true; knot.userData.isGift = true; bow.add(knot);
       [-1, 1].forEach((side) => {
-        const loop = new THREE.Mesh(new THREE.TorusGeometry(0.37, 0.12, 12, 30), ribbonMat);
-        loop.scale.set(1.16, 0.78, 1); loop.position.x = side * 0.36; loop.rotation.z = side * 0.55; loop.userData.isGift = true; bow!.add(loop);
-        const tail = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.72, 0.1), ribbonMat);
-        tail.position.set(side * 0.25, -0.32, 0); tail.rotation.z = side * 0.28; tail.userData.isGift = true; bow!.add(tail);
+        const loop = makeRibbonLoop(side, ribbonMat);
+        loop.castShadow = true; loop.userData.isGift = true; bow!.add(loop);
+        const tail = makeRibbonTail(side, ribbonMat);
+        tail.castShadow = true; tail.userData.isGift = true; bow!.add(tail);
       });
-      bow.position.set(0, 2.18, 0); bow.rotation.x = -0.2; gift.add(bow);
+      bow.position.set(0, 0.51, 0.02); bow.rotation.x = -0.16; lidAssembly.add(bow);
     };
 
     const nextRound = () => {
@@ -286,7 +475,11 @@ export default function Home() {
       surface = SURFACES[Math.floor(Math.random() * SURFACES.length)];
       buildSurface(surface); buildGift();
       gift.visible = true; gift.position.set(0, 0, 0); gift.rotation.set(0, 0, 0); gift.scale.setScalar(0.4);
-      glow.material.opacity = 0; sparkleGroup.children.forEach((child) => ((child as THREE.Mesh).material as THREE.MeshBasicMaterial).opacity = 0);
+      glow.material.opacity = 0; glow.scale.setScalar(0.1); bloomPass.strength = 0.06; burstLight.intensity = 0;
+      lightRings.forEach((ring) => { (ring.material as THREE.MeshBasicMaterial).opacity = 0; ring.scale.setScalar(0.1); });
+      sparkleGroup.children.forEach((child) => ((child as THREE.Mesh).material as THREE.MeshBasicMaterial).opacity = 0);
+      effectGroup.children.forEach((child) => { if (child.userData.angle !== undefined) child.visible = false; });
+      camera.position.copy(cameraHome); camera.lookAt(0, 0.65, 0); contactShadow.material.opacity = 0.22;
       const nextIndex = (previousWord + 1 + Math.floor(Math.random() * (WORDS.length - 1))) % WORDS.length;
       previousWord = nextIndex; currentCard = WORDS[nextIndex];
       hitAt = performance.now();
@@ -297,7 +490,7 @@ export default function Home() {
       cardTimer = window.setTimeout(() => {
         phase = 'card'; setCard(currentCard); playCard(currentCard);
         readyTimer = window.setTimeout(() => { phase = 'ready'; setCardReady(true); }, 5000);
-      }, prefersLessMotion ? 250 : 1050);
+      }, prefersLessMotion ? 280 : 1380);
     };
 
     const reactGift = (swipe: boolean, amount = 0) => {
@@ -363,7 +556,9 @@ export default function Home() {
       const { clientWidth, clientHeight } = mount;
       camera.aspect = clientWidth / Math.max(clientHeight, 1);
       camera.fov = clientWidth < clientHeight ? 43 : 34;
-      camera.updateProjectionMatrix(); renderer.setSize(clientWidth, clientHeight, false);
+      camera.updateProjectionMatrix();
+      renderer.setSize(clientWidth, clientHeight, false);
+      composer.setSize(clientWidth, clientHeight);
     };
     const observer = new ResizeObserver(resize); observer.observe(mount); resize(); nextRound();
 
@@ -382,23 +577,68 @@ export default function Home() {
         gift.scale.y *= 1 - Math.sin(hitProgress * Math.PI) * 0.075;
         gift.position.x = dragValue;
         gift.position.y = Math.sin(time * 0.0022) * (prefersLessMotion ? 0.004 : 0.018) + Math.sin(hitProgress * Math.PI) * 0.13;
-        if (lid) { lid.position.y = 1.74 + Math.sin(hitProgress * Math.PI) * 0.09; lid.rotation.z = wobble * -0.22; }
+        if (lidAssembly) {
+          lidAssembly.position.y = 1.72 + Math.sin(hitProgress * Math.PI) * 0.09;
+          lidAssembly.rotation.set(0, 0, wobble * -0.22);
+        }
         if (bow) bow.rotation.y = Math.sin(time * 0.0019) * (prefersLessMotion ? 0.015 : 0.09);
+        camera.position.lerp(cameraHome, 0.08);
+        camera.lookAt(0, 0.65, 0);
+        bloomPass.strength = THREE.MathUtils.damp(bloomPass.strength, 0.06, 7, dt);
+        renderer.toneMappingExposure = THREE.MathUtils.damp(renderer.toneMappingExposure, 0.88, 7, dt);
+        contactShadow.material.opacity = THREE.MathUtils.damp(contactShadow.material.opacity, 0.22, 7, dt);
       } else {
-        const p = Math.min(1, Math.max(0, (time - openingAt) / (prefersLessMotion ? 300 : 1150)));
+        const p = Math.min(1, Math.max(0, (time - openingAt) / (prefersLessMotion ? 320 : 1450)));
         const ease = 1 - Math.pow(1 - p, 3);
-        gift.scale.setScalar(1 + Math.sin(Math.min(p * 1.3, 1) * Math.PI) * 0.16);
-        gift.rotation.z = Math.sin(p * Math.PI * 4) * (1 - p) * 0.06;
-        if (lid) { lid.position.y = 1.74 + ease * 2.0; lid.rotation.x = -ease * 0.9; lid.rotation.z = ease * 0.18; }
-        if (bow && lid) { bow.position.y = 2.18 + ease * 2.0; bow.rotation.x = -0.2 - ease * 0.9; bow.rotation.z = ease * 0.18; }
-        glow.material.opacity = Math.sin(Math.min(p, 0.92) * Math.PI) * 0.44;
-        glow.scale.setScalar(0.5 + ease * 2.35);
-        sparkleGroup.children.forEach((child, index) => {
-          const angle = (index / sparkleGroup.children.length) * Math.PI * 2 + p * 1.8;
-          const radius = 0.45 + ease * (1.6 + (index % 4) * 0.22);
-          child.position.set(Math.cos(angle) * radius, 1.2 + Math.sin(angle * 1.7) * radius * 0.54 + ease * 0.5, Math.sin(angle) * 0.45);
-          ((child as THREE.Mesh).material as THREE.MeshBasicMaterial).opacity = Math.sin(p * Math.PI) * 0.9;
+        const anticipation = Math.sin(Math.min(p / 0.22, 1) * Math.PI);
+        const lift = p < 0.16 ? 0 : 1 - Math.pow(1 - Math.min(1, (p - 0.16) / 0.58), 4);
+        gift.scale.set(1 + anticipation * 0.1, 1 - anticipation * 0.07 + Math.sin(Math.min(p * 1.12, 1) * Math.PI) * 0.13, 1 + anticipation * 0.1);
+        gift.rotation.z = Math.sin(p * Math.PI * 5) * (1 - p) * 0.055;
+        gift.position.y = anticipation * -0.05 + Math.sin(Math.min(1, p * 1.2) * Math.PI) * 0.1;
+        if (lidAssembly) {
+          lidAssembly.position.y = 1.72 + lift * 2.35;
+          lidAssembly.rotation.x = -lift * 1.02;
+          lidAssembly.rotation.z = lift * 0.16;
+          lidAssembly.rotation.y = lift * -0.08;
+        }
+        if (bow) bow.rotation.y = Math.sin(p * Math.PI * 3) * (1 - p) * 0.16;
+
+        const flare = Math.pow(Math.sin(Math.min(p / 0.9, 1) * Math.PI), 0.72);
+        glow.material.opacity = flare * 0.34;
+        glow.scale.setScalar(0.35 + ease * 3.85);
+        burstLight.intensity = flare * 18;
+        bloomPass.strength = 0.06 + flare * 0.5;
+        renderer.toneMappingExposure = 0.88 + flare * 0.07;
+        contactShadow.material.opacity = 0.22 * (1 - lift * 0.45);
+        lightRings.forEach((ring, index) => {
+          const delayed = Math.max(0, Math.min(1, (p - index * 0.09) / 0.72));
+          ring.scale.setScalar(0.18 + delayed * (3.4 + index * 0.7));
+          ring.rotation.z = p * (index ? -1.2 : 1.5);
+          (ring.material as THREE.MeshBasicMaterial).opacity = Math.sin(delayed * Math.PI) * (index ? 0.34 : 0.46);
         });
+        sparkleGroup.children.forEach((child, index) => {
+          const seed = child.userData.seed as number;
+          const angle = (index / sparkleGroup.children.length) * Math.PI * 2 + p * (1.25 + seed);
+          const radius = 0.32 + ease * (1.5 + seed * 1.25);
+          child.position.set(Math.cos(angle) * radius, 1.2 + Math.sin(angle * 1.75) * radius * 0.46 + ease * (0.35 + seed), Math.sin(angle) * (0.38 + seed * 0.35));
+          child.scale.setScalar(0.55 + Math.sin((p + seed) * Math.PI * 4) * 0.22 + seed * 0.6);
+          child.rotation.set(p * 7 * seed, p * 6, p * 4);
+          ((child as THREE.Mesh).material as THREE.MeshBasicMaterial).opacity = Math.sin(p * Math.PI) * (0.55 + seed * 0.45);
+        });
+        effectGroup.children.forEach((child) => {
+          if (child.userData.angle === undefined) return;
+          const seed = child.userData.seed as number;
+          const angle = child.userData.angle as number;
+          const launch = Math.max(0, Math.min(1, (p - 0.2) / 0.7));
+          child.visible = launch > 0 && launch < 0.98;
+          const radius = 0.25 + launch * (2.15 + seed * 1.25);
+          child.position.set(Math.cos(angle) * radius, 1.35 + launch * (2.0 + seed * 1.2) - launch * launch * 2.2, Math.sin(angle) * radius * 0.55 + 0.35);
+          child.rotation.set(launch * (5 + seed * 8), launch * (7 + seed * 6), angle + launch * 5);
+        });
+
+        const cameraEase = Math.sin(Math.min(1, p / 0.78) * Math.PI / 2);
+        camera.position.set(cameraHome.x, cameraHome.y - cameraEase * 0.12, cameraHome.z - cameraEase * 0.62);
+        camera.lookAt(0, 0.78 + cameraEase * 0.18, 0);
       }
       surfaceGroup.children.forEach((child, index) => {
         if (!child.userData.plant) return;
@@ -409,7 +649,7 @@ export default function Home() {
         const age = (time - child.userData.born) / 9000;
         ((child as THREE.Mesh).material as THREE.MeshStandardMaterial).opacity = Math.max(0.08, 0.55 * (1 - age));
       });
-      renderer.render(scene, camera); frame = requestAnimationFrame(animate);
+      composer.render(); frame = requestAnimationFrame(animate);
     };
     frame = requestAnimationFrame(animate);
 
@@ -417,8 +657,9 @@ export default function Home() {
       cancelAnimationFrame(frame); window.clearTimeout(cardTimer); window.clearTimeout(readyTimer); observer.disconnect();
       renderer.domElement.removeEventListener('pointerdown', onPointerDown); renderer.domElement.removeEventListener('pointermove', onPointerMove);
       renderer.domElement.removeEventListener('pointerup', onPointerUp); renderer.domElement.removeEventListener('pointercancel', onPointerUp);
-      disposeChildren(gift); disposeChildren(surfaceGroup); disposeChildren(traceGroup); disposeChildren(sparkleGroup);
-      glow.geometry.dispose(); glow.material.dispose(); renderer.dispose(); void audio?.close(); mount.removeChild(renderer.domElement);
+      disposeChildren(gift); disposeChildren(surfaceGroup); disposeChildren(traceGroup); disposeChildren(sparkleGroup); disposeChildren(effectGroup);
+      contactShadow.geometry.dispose(); contactShadow.material.dispose(); radialTexture.dispose(); glow.material.dispose(); ringMaterial.dispose();
+      environmentMap.dispose(); composer.dispose(); renderer.dispose(); void audio?.close(); mount.removeChild(renderer.domElement);
     };
   }, []);
 
