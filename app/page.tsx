@@ -166,6 +166,7 @@ function playTone(
   volume = 0.055,
   type: OscillatorType = 'sine',
   endFrequency = frequency * 1.03,
+  attackTime = Math.min(0.018, duration * 0.24),
 ) {
   const oscillator = context.createOscillator();
   const gain = context.createGain();
@@ -173,7 +174,7 @@ function playTone(
   oscillator.frequency.setValueAtTime(frequency, start);
   oscillator.frequency.exponentialRampToValueAtTime(Math.max(endFrequency, 20), start + duration);
   gain.gain.setValueAtTime(0.0001, start);
-  gain.gain.exponentialRampToValueAtTime(volume, start + Math.min(0.018, duration * 0.24));
+  gain.gain.exponentialRampToValueAtTime(volume, start + Math.min(attackTime, duration * 0.45));
   gain.gain.exponentialRampToValueAtTime(0.0001, start + duration);
   oscillator.connect(gain).connect(destination);
   oscillator.start(start); oscillator.stop(start + duration + 0.02);
@@ -193,6 +194,7 @@ function playNoiseSweep(
   startFrequency: number,
   endFrequency: number,
   volume: number,
+  attackFraction = 0.34,
 ) {
   const sampleCount = Math.max(1, Math.floor(context.sampleRate * duration));
   const buffer = context.createBuffer(1, sampleCount, context.sampleRate);
@@ -207,7 +209,7 @@ function playNoiseSweep(
   filter.frequency.setValueAtTime(startFrequency, start);
   filter.frequency.exponentialRampToValueAtTime(endFrequency, start + duration);
   gain.gain.setValueAtTime(0.0001, start);
-  gain.gain.exponentialRampToValueAtTime(volume, start + duration * 0.34);
+  gain.gain.exponentialRampToValueAtTime(volume, start + duration * attackFraction);
   gain.gain.exponentialRampToValueAtTime(0.0001, start + duration);
   source.connect(filter).connect(gain).connect(destination);
   source.start(start); source.stop(start + duration + 0.02);
@@ -392,11 +394,12 @@ export default function Home() {
       const { context, bus } = ensureAudio();
       const now = context.currentTime;
       const pitch = swipe ? 210 : 254 + count * 28;
-      playTone(context, bus, pitch * 0.52, now, 0.075, 0.03, 'sine', pitch * 0.38);
-      playTone(context, bus, pitch, now, 0.105, 0.066, 'triangle', pitch * 0.7);
-      playTone(context, bus, pitch * 1.68, now + 0.006, 0.13, 0.035, 'sine', pitch * 1.8);
-      playTone(context, bus, pitch * 2.45, now + 0.004, 0.044, 0.009, 'square', pitch * 2.15);
-      playNoiseSweep(context, bus, now, 0.055, 1250, 390, 0.024);
+      const accent = 1 + Math.min(count - 1, 2) * 0.055;
+      playTone(context, bus, pitch * 0.5, now, 0.082, 0.036 * accent, 'sine', pitch * 0.32, 0.003);
+      playTone(context, bus, pitch, now, 0.11, 0.072 * accent, 'triangle', pitch * 0.64, 0.0025);
+      playTone(context, bus, pitch * 1.82, now + 0.003, 0.12, 0.043 * accent, 'sine', pitch * 2.02, 0.002);
+      playTone(context, bus, pitch * 3.1, now + 0.002, 0.036, 0.014 * accent, 'square', pitch * 2.6, 0.0015);
+      playNoiseSweep(context, bus, now, 0.048, 1850, 520, 0.03 * accent, 0.07);
     };
     const playOpen = () => {
       const { context, bus } = ensureAudio();
