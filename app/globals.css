@@ -21,6 +21,25 @@ button, input { font: inherit; }
 @keyframes shine-pass { 0%,58% { left: -46%; } 82%,100% { left: 118%; } }
 @keyframes ready-breathe { 0%,100% { opacity: .24; transform: scale(.985); } 50% { opacity: .7; transform: scale(1.01); } }
 
+@media (orientation: portrait) and (max-width: 600px) {
+  .word-card {
+    width: min(82vw, 350px);
+    min-height: min(58vh, 460px);
+    padding: clamp(28px, 6vh, 46px) 22px;
+    grid-template-rows: auto auto;
+    align-content: center;
+    gap: clamp(8px, 2vh, 16px);
+  }
+  .word-picture {
+    align-self: center;
+    padding-top: 0;
+    font-size: clamp(108px, 34vw, 152px);
+  }
+  .word-label {
+    padding: 4px 10px 0;
+    font-size: clamp(46px, 14vw, 68px);
+  }
+}
 @media (orientation: landscape) and (max-height: 600px) {
   .word-card { width: min(44vw, 330px); min-height: min(82vh, 440px); padding: 20px; }
   .word-picture { font-size: min(28vh, 145px); }
