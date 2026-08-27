@@ -10,7 +10,6 @@ import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPa
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 
 type WordCard = { word: string; picture: string; tone: number };
-type SurfaceKind = 'sand' | 'soil' | 'concrete' | 'wood';
 
 const WORDS: WordCard[] = [
   { word: '물', picture: '💧', tone: 520 },
@@ -42,8 +41,6 @@ const BOX_STYLES = [
   ['#b77dad', '#f1d483', '#d9b1d1'],
   ['#d49452', '#b9dfce', '#e9b879'],
 ];
-
-const SURFACES: SurfaceKind[] = ['sand', 'soil', 'concrete', 'wood'];
 
 function makePatternTexture(colors: string[], variant: number) {
   const canvas = document.createElement('canvas');
@@ -160,17 +157,60 @@ function sampleTapPose(progress: number): TapPose {
   };
 }
 
-function playTone(context: AudioContext, frequency: number, start: number, duration: number, volume = 0.055) {
+function playTone(
+  context: AudioContext,
+  destination: AudioNode,
+  frequency: number,
+  start: number,
+  duration: number,
+  volume = 0.055,
+  type: OscillatorType = 'sine',
+  endFrequency = frequency * 1.03,
+) {
   const oscillator = context.createOscillator();
   const gain = context.createGain();
-  oscillator.type = 'sine';
+  oscillator.type = type;
   oscillator.frequency.setValueAtTime(frequency, start);
-  oscillator.frequency.exponentialRampToValueAtTime(frequency * 1.06, start + duration);
+  oscillator.frequency.exponentialRampToValueAtTime(Math.max(endFrequency, 20), start + duration);
   gain.gain.setValueAtTime(0.0001, start);
-  gain.gain.exponentialRampToValueAtTime(volume, start + 0.025);
+  gain.gain.exponentialRampToValueAtTime(volume, start + Math.min(0.018, duration * 0.24));
   gain.gain.exponentialRampToValueAtTime(0.0001, start + duration);
-  oscillator.connect(gain).connect(context.destination);
+  oscillator.connect(gain).connect(destination);
   oscillator.start(start); oscillator.stop(start + duration + 0.02);
+}
+
+function playBell(context: AudioContext, destination: AudioNode, frequency: number, start: number, duration: number, volume = 0.03) {
+  playTone(context, destination, frequency, start, duration, volume, 'sine', frequency * 1.012);
+  playTone(context, destination, frequency * 2.01, start + 0.003, duration * 0.62, volume * 0.22, 'sine', frequency * 2.025);
+  playTone(context, destination, frequency * 3.98, start + 0.006, duration * 0.38, volume * 0.08, 'sine', frequency * 4.01);
+}
+
+function playNoiseSweep(
+  context: AudioContext,
+  destination: AudioNode,
+  start: number,
+  duration: number,
+  startFrequency: number,
+  endFrequency: number,
+  volume: number,
+) {
+  const sampleCount = Math.max(1, Math.floor(context.sampleRate * duration));
+  const buffer = context.createBuffer(1, sampleCount, context.sampleRate);
+  const channel = buffer.getChannelData(0);
+  for (let index = 0; index < sampleCount; index += 1) channel[index] = Math.random() * 2 - 1;
+  const source = context.createBufferSource();
+  const filter = context.createBiquadFilter();
+  const gain = context.createGain();
+  source.buffer = buffer;
+  filter.type = 'bandpass';
+  filter.Q.value = 0.8;
+  filter.frequency.setValueAtTime(startFrequency, start);
+  filter.frequency.exponentialRampToValueAtTime(endFrequency, start + duration);
+  gain.gain.setValueAtTime(0.0001, start);
+  gain.gain.exponentialRampToValueAtTime(volume, start + duration * 0.34);
+  gain.gain.exponentialRampToValueAtTime(0.0001, start + duration);
+  source.connect(filter).connect(gain).connect(destination);
+  source.start(start); source.stop(start + duration + 0.02);
 }
 
 export default function Home() {
@@ -184,7 +224,6 @@ export default function Home() {
     const prefersLessMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     const scene = new THREE.Scene();
     scene.background = new THREE.Color('#b8ddcf');
-    scene.fog = new THREE.Fog('#b8ddcf', 10, 19);
     const camera = new THREE.PerspectiveCamera(34, 1, 0.1, 100);
     const cameraHome = new THREE.Vector3(0, 3.45, 8.9);
     camera.position.copy(cameraHome);
@@ -198,7 +237,7 @@ export default function Home() {
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 0.88;
-    renderer.domElement.setAttribute('aria-label', '선물 상자와 바닥을 만지는 놀이 화면');
+    renderer.domElement.setAttribute('aria-label', '선물 상자를 터치해 여는 놀이 화면');
     mount.appendChild(renderer.domElement);
 
     const environmentGenerator = new THREE.PMREMGenerator(renderer);
@@ -236,12 +275,10 @@ export default function Home() {
 
     const world = new THREE.Group();
     const gift = new THREE.Group();
-    const surfaceGroup = new THREE.Group();
-    const traceGroup = new THREE.Group();
     const sparkleGroup = new THREE.Group();
     const effectGroup = new THREE.Group();
     scene.add(world, sparkleGroup, effectGroup);
-    world.add(surfaceGroup, traceGroup, gift);
+    world.add(gift);
 
     const radialTexture = makeRadialTexture();
     const glow = new THREE.Sprite(new THREE.SpriteMaterial({
@@ -312,12 +349,12 @@ export default function Home() {
     contactShadow.scale.y = 0.62;
     world.add(contactShadow);
 
-    let floorMesh: THREE.Mesh | null = null;
     let lid: THREE.Mesh | null = null;
     let lidAssembly: THREE.Group | null = null;
     let bow: THREE.Group | null = null;
     let audio: AudioContext | null = null;
-    let surface: SurfaceKind = 'sand';
+    let audioBus: GainNode | null = null;
+    let audioCompressor: DynamicsCompressorNode | null = null;
     let boxTouches = 0;
     let phase: 'box' | 'opening' | 'card' | 'ready' = 'box';
     let spawnAt = performance.now();
@@ -334,27 +371,53 @@ export default function Home() {
     let pointerLast = new THREE.Vector2();
     let pointerOnGift = false;
     let pointerMoved = false;
-    let lastTraceAt = 0;
 
     const ensureAudio = () => {
-      if (!audio) audio = new AudioContext();
+      if (!audio) {
+        audio = new AudioContext();
+        audioBus = audio.createGain();
+        audioCompressor = audio.createDynamicsCompressor();
+        audioBus.gain.value = 0.72;
+        audioCompressor.threshold.value = -18;
+        audioCompressor.knee.value = 12;
+        audioCompressor.ratio.value = 4;
+        audioCompressor.attack.value = 0.006;
+        audioCompressor.release.value = 0.18;
+        audioBus.connect(audioCompressor).connect(audio.destination);
+      }
       if (audio.state === 'suspended') void audio.resume();
-      return audio;
+      return { context: audio, bus: audioBus! };
     };
     const playTap = (count: number, swipe: boolean) => {
-      const ctx = ensureAudio();
-      const now = ctx.currentTime;
-      playTone(ctx, swipe ? 205 : 245 + count * 34, now, 0.13, 0.05);
-      playTone(ctx, swipe ? 138 : 150, now + 0.02, 0.09, 0.025);
+      const { context, bus } = ensureAudio();
+      const now = context.currentTime;
+      const pitch = swipe ? 210 : 254 + count * 28;
+      playTone(context, bus, pitch, now, 0.09, 0.038, 'triangle', pitch * 0.72);
+      playTone(context, bus, pitch * 1.68, now + 0.008, 0.115, 0.02, 'sine', pitch * 1.78);
+      playNoiseSweep(context, bus, now, 0.042, 980, 460, 0.014);
     };
     const playOpen = () => {
-      const ctx = ensureAudio(); const now = ctx.currentTime;
-      [392, 523, 659, 784].forEach((frequency, index) => playTone(ctx, frequency, now + index * 0.105, 0.32, 0.048));
+      const { context, bus } = ensureAudio();
+      const now = context.currentTime;
+      playNoiseSweep(context, bus, now, 0.48, 360, 3400, 0.024);
+      playTone(context, bus, 285, now, 0.43, 0.018, 'triangle', 980);
+      playTone(context, bus, 132, now, 0.16, 0.032, 'sine', 92);
+      [523.25, 659.25, 783.99, 1046.5].forEach((frequency, index) => {
+        playBell(context, bus, frequency, now + index * 0.078, 0.38 + index * 0.04, 0.03 + index * 0.003);
+      });
+      [1046.5, 1318.51, 1567.98].forEach((frequency, index) => {
+        playBell(context, bus, frequency, now + 0.34 + index * 0.012, 0.78, 0.018);
+      });
+      [1760, 2093, 2637].forEach((frequency, index) => {
+        playBell(context, bus, frequency, now + 0.52 + index * 0.13, 0.34, 0.009);
+      });
     };
     const playCard = (word: WordCard) => {
-      const ctx = ensureAudio(); const now = ctx.currentTime;
-      playTone(ctx, word.tone, now, 0.2, 0.05);
-      playTone(ctx, word.tone * 1.25, now + 0.16, 0.28, 0.045);
+      const { context, bus } = ensureAudio();
+      const now = context.currentTime;
+      const note = 620 + (word.tone % 170);
+      playBell(context, bus, note, now, 0.42, 0.018);
+      playBell(context, bus, note * 1.5, now + 0.11, 0.52, 0.014);
     };
 
     const disposeChildren = (group: THREE.Group) => {
@@ -365,67 +428,6 @@ export default function Home() {
         materials.forEach((material) => { const mapped = material as THREE.MeshStandardMaterial; mapped.map?.dispose(); material.dispose(); });
       });
       group.clear();
-    };
-
-    const buildSurface = (kind: SurfaceKind) => {
-      disposeChildren(surfaceGroup);
-      traceGroup.clear();
-      const settings = {
-        sand: ['#d9bb83', '#b8ddcf', 1.0],
-        soil: ['#9b8062', '#bad6b6', 0.92],
-        concrete: ['#aeb4ae', '#c9d9d2', 1.0],
-        wood: ['#c49266', '#c8d8cb', 0.72],
-      }[kind] as [string, string, number];
-      scene.background = new THREE.Color(settings[1]);
-      if (scene.fog) scene.fog.color.set(settings[1]);
-      floorMesh = new THREE.Mesh(
-        new THREE.CylinderGeometry(6.5, 7, 0.7, 64),
-        new THREE.MeshStandardMaterial({ color: settings[0], roughness: settings[2], metalness: 0 }),
-      );
-      floorMesh.position.y = -0.78;
-      floorMesh.receiveShadow = true;
-      floorMesh.userData.isFloor = true;
-      surfaceGroup.add(floorMesh);
-
-      if (kind === 'sand') {
-        for (let i = 0; i < 26; i += 1) {
-          const grain = new THREE.Mesh(new THREE.SphereGeometry(0.025 + Math.random() * 0.035, 8, 6), new THREE.MeshStandardMaterial({ color: i % 2 ? '#ead09f' : '#cda971', roughness: 1 }));
-          const angle = Math.random() * Math.PI * 2, radius = 1.9 + Math.random() * 3.8;
-          grain.position.set(Math.cos(angle) * radius, -0.4, Math.sin(angle) * radius);
-          surfaceGroup.add(grain);
-        }
-      }
-      if (kind === 'soil') {
-        for (let i = 0; i < 7; i += 1) {
-          const plant = new THREE.Group(); plant.userData.plant = true;
-          const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.04, 0.62, 8), new THREE.MeshStandardMaterial({ color: '#668c62', roughness: 0.8 }));
-          stem.position.y = 0.3; plant.add(stem);
-          [-1, 1].forEach((side) => {
-            const leaf = new THREE.Mesh(new THREE.SphereGeometry(0.14, 12, 8), new THREE.MeshStandardMaterial({ color: side > 0 ? '#81a978' : '#739b6d', roughness: 0.85 }));
-            leaf.scale.set(1.5, 0.45, 0.8); leaf.position.set(side * 0.12, 0.36 + side * 0.07, 0); leaf.rotation.z = side * 0.45; plant.add(leaf);
-          });
-          const angle = (i / 7) * Math.PI * 2 + 0.35, radius = 3.2 + (i % 2) * 0.7;
-          plant.position.set(Math.cos(angle) * radius, -0.4, Math.sin(angle) * radius);
-          surfaceGroup.add(plant);
-        }
-      }
-      if (kind === 'concrete') {
-        for (let i = 0; i < 34; i += 1) {
-          const pebble = new THREE.Mesh(new THREE.DodecahedronGeometry(0.035 + Math.random() * 0.045, 0), new THREE.MeshStandardMaterial({ color: i % 2 ? '#c5c9c3' : '#929b96', roughness: 1 }));
-          const angle = Math.random() * Math.PI * 2, radius = 1.9 + Math.random() * 3.8;
-          pebble.position.set(Math.cos(angle) * radius, -0.39, Math.sin(angle) * radius); pebble.scale.y = 0.35; surfaceGroup.add(pebble);
-        }
-      }
-      if (kind === 'wood') {
-        for (let i = -5; i <= 5; i += 1) {
-          const seam = new THREE.Mesh(new THREE.BoxGeometry(0.027, 0.008, 10), new THREE.MeshStandardMaterial({ color: '#8f684c', roughness: 1 }));
-          seam.position.set(i * 1.08, -0.415, 0); surfaceGroup.add(seam);
-          if (i % 2 === 0) {
-            const grain = new THREE.Mesh(new THREE.TorusGeometry(0.24, 0.018, 6, 30), new THREE.MeshStandardMaterial({ color: '#a87550', roughness: 1 }));
-            grain.rotation.x = -Math.PI / 2; grain.scale.y = 0.42; grain.position.set(i * 1.08 + 0.32, -0.402, 1.5 - (i % 3)); surfaceGroup.add(grain);
-          }
-        }
-      }
     };
 
     const buildGift = () => {
@@ -511,8 +513,7 @@ export default function Home() {
     const nextRound = () => {
       window.clearTimeout(cardTimer); window.clearTimeout(readyTimer);
       setCard(null); setCardReady(false); phase = 'box'; boxTouches = 0; dragTarget = dragValue = 0;
-      surface = SURFACES[Math.floor(Math.random() * SURFACES.length)];
-      buildSurface(surface); buildGift();
+      buildGift();
       gift.visible = true; gift.position.set(0, 0, 0); gift.rotation.set(0, 0, 0); gift.scale.setScalar(0.55);
       glow.material.opacity = 0; glow.scale.setScalar(0.1); bloomPass.strength = 0.06; burstLight.intensity = 0;
       lightRings.forEach((ring) => { (ring.material as THREE.MeshBasicMaterial).opacity = 0; ring.scale.setScalar(0.1); });
@@ -535,7 +536,7 @@ export default function Home() {
     const reactGift = (swipe: boolean, amount = 0) => {
       if (phase !== 'box') return;
       boxTouches += 1; hitAt = performance.now(); tapDirection = boxTouches % 2 === 0 ? -1 : 1; playTap(boxTouches, swipe);
-      dragTarget = THREE.MathUtils.clamp(amount, -1.0, 1.0) * (surface === 'concrete' ? 0.18 : 0.52);
+      dragTarget = THREE.MathUtils.clamp(amount, -1.0, 1.0) * 0.52;
       if (boxTouches >= 3) openGift();
     };
 
@@ -551,33 +552,18 @@ export default function Home() {
       while (object) { if (object.userData.isGift) return true; object = object.parent; }
       return false;
     });
-    const addSandTrace = () => {
-      if (!floorMesh || performance.now() - lastTraceAt < 45) return;
-      const hit = raycaster.intersectObject(floorMesh)[0]; if (!hit) return;
-      lastTraceAt = performance.now();
-      const mark = new THREE.Mesh(new THREE.TorusGeometry(0.12, 0.018, 8, 24), new THREE.MeshStandardMaterial({ color: '#b9935d', transparent: true, opacity: 0.55, roughness: 1 }));
-      mark.rotation.x = -Math.PI / 2; mark.position.copy(hit.point); mark.position.y = -0.395; mark.scale.x = 1.5; mark.userData.born = performance.now(); traceGroup.add(mark);
-      if (traceGroup.children.length > 38) { const old = traceGroup.children[0] as THREE.Mesh; old.geometry.dispose(); (old.material as THREE.Material).dispose(); traceGroup.remove(old); }
-    };
-    const brushPlants = () => {
-      surfaceGroup.children.forEach((child) => { if (child.userData.plant) child.userData.brushed = performance.now(); });
-    };
     const onPointerDown = (event: PointerEvent) => {
       renderer.domElement.setPointerCapture(event.pointerId); updatePointer(event);
       pointerStart.set(event.clientX, event.clientY); pointerLast.copy(pointerStart); pointerMoved = false;
       if (phase === 'ready') { nextRound(); return; }
       if (phase !== 'box') return;
       pointerOnGift = giftHit();
-      if (!pointerOnGift && surface === 'sand') addSandTrace();
-      if (!pointerOnGift && surface === 'soil') brushPlants();
     };
     const onPointerMove = (event: PointerEvent) => {
       if (phase !== 'box') return; updatePointer(event);
       const dx = event.clientX - pointerStart.x, dy = event.clientY - pointerStart.y;
       if (Math.hypot(dx, dy) > 12) pointerMoved = true;
-      if (pointerOnGift) dragTarget = THREE.MathUtils.clamp(dx / 160, -1, 1) * (surface === 'concrete' ? 0.2 : 0.64);
-      else if (surface === 'sand') addSandTrace();
-      else if (surface === 'soil') brushPlants();
+      if (pointerOnGift) dragTarget = THREE.MathUtils.clamp(dx / 160, -1, 1) * 0.64;
       pointerLast.set(event.clientX, event.clientY);
     };
     const onPointerUp = (event: PointerEvent) => {
@@ -608,7 +594,7 @@ export default function Home() {
       lastAnimationTime = time;
       const spawnProgress = THREE.MathUtils.clamp((time - spawnAt) / (prefersLessMotion ? 180 : 520), 0, 1);
       const tapProgress = THREE.MathUtils.clamp((time - hitAt) / (prefersLessMotion ? 170 : 430), 0, 1);
-      dragValue = THREE.MathUtils.damp(dragValue, dragTarget, surface === 'concrete' ? 5 : 9, dt);
+      dragValue = THREE.MathUtils.damp(dragValue, dragTarget, 9, dt);
       if (phase === 'box') {
         const spawnEase = 1 + 1.45 * Math.pow(spawnProgress - 1, 3) + 0.45 * Math.pow(spawnProgress - 1, 2);
         const spawnScale = THREE.MathUtils.lerp(0.55, 1, THREE.MathUtils.clamp(spawnEase, 0, 1.06));
@@ -681,15 +667,6 @@ export default function Home() {
         camera.position.set(cameraHome.x, cameraHome.y - cameraEase * 0.12, cameraHome.z - cameraEase * 0.62);
         camera.lookAt(0, 0.78 + cameraEase * 0.18, 0);
       }
-      surfaceGroup.children.forEach((child, index) => {
-        if (!child.userData.plant) return;
-        const brush = Math.max(0, 1 - (time - (child.userData.brushed || -1000)) / 900);
-        child.rotation.z = Math.sin(time * 0.002 + index) * 0.035 + Math.sin(brush * Math.PI * 3) * brush * 0.35;
-      });
-      traceGroup.children.forEach((child) => {
-        const age = (time - child.userData.born) / 9000;
-        ((child as THREE.Mesh).material as THREE.MeshStandardMaterial).opacity = Math.max(0.08, 0.55 * (1 - age));
-      });
       composer.render(); frame = requestAnimationFrame(animate);
     };
     frame = requestAnimationFrame(animate);
@@ -698,9 +675,9 @@ export default function Home() {
       cancelAnimationFrame(frame); window.clearTimeout(cardTimer); window.clearTimeout(readyTimer); observer.disconnect();
       renderer.domElement.removeEventListener('pointerdown', onPointerDown); renderer.domElement.removeEventListener('pointermove', onPointerMove);
       renderer.domElement.removeEventListener('pointerup', onPointerUp); renderer.domElement.removeEventListener('pointercancel', onPointerUp);
-      disposeChildren(gift); disposeChildren(surfaceGroup); disposeChildren(traceGroup); disposeChildren(sparkleGroup); disposeChildren(effectGroup);
+      disposeChildren(gift); disposeChildren(sparkleGroup); disposeChildren(effectGroup);
       contactShadow.geometry.dispose(); contactShadow.material.dispose(); radialTexture.dispose(); glow.material.dispose(); ringMaterial.dispose();
-      environmentMap.dispose(); composer.dispose(); renderer.dispose(); void audio?.close(); mount.removeChild(renderer.domElement);
+      environmentMap.dispose(); composer.dispose(); renderer.dispose(); audioBus?.disconnect(); audioCompressor?.disconnect(); void audio?.close(); mount.removeChild(renderer.domElement);
     };
   }, []);
 
